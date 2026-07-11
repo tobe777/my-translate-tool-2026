@@ -403,19 +403,19 @@ select:focus {
 
 .dark & {
   .translate-box {
-    background: #16213e;
+    background: #16213e !important;
     box-shadow: 0 2px 8px rgba(0,0,0,0.2);
   }
   
   .box-header {
-    background: #0f3460;
+    background: #0f3460 !important;
     border-bottom-color: #2a2a4a;
   }
   
   .lang-select {
-    background: #0f3460;
-    border-color: #2a2a4a;
-    color: #b8b8d0;
+    background: #0f3460 !important;
+    border-color: #2a2a4a !important;
+    color: #b8b8d0 !important;
   }
   
   .word-count {
@@ -431,17 +431,17 @@ select:focus {
   }
   
   .translate-textarea {
-    background: #16213e;
-    color: #ffffff;
+    background: #16213e !important;
+    color: #ffffff !important;
     
     &::placeholder {
-      color: #555570;
+      color: #555570 !important;
     }
   }
   
   .swap-btn {
-    background: #16213e;
-    border-color: #2a2a4a;
+    background: #16213e !important;
+    border-color: #2a2a4a !important;
     
     &:hover:not(:disabled) {
       background: #2a2a4a;
@@ -449,9 +449,9 @@ select:focus {
   }
   
   .error-message {
-    background: #2d1f1f;
-    color: #F56C6C;
-    border-bottom-color: #4a2a2a;
+    background: #2d1f1f !important;
+    color: #F56C6C !important;
+    border-bottom-color: #4a2a4a;
   }
   
   .translating {
