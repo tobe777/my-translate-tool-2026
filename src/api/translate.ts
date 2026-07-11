@@ -553,28 +553,35 @@ async function translateTranslateCom(text: string, sourceLang: string, targetLan
 }
 
 async function translateFree(text: string, sourceLang: string, targetLang: string): Promise<TranslateResult> {
-  const providers = [
-    { name: 'Lingva', fn: translateLingva },
-    { name: 'Libre', fn: translateLibre },
-    { name: 'MyMemory', fn: translateMyMemory },
-    { name: 'TranslateCom', fn: translateTranslateCom }
+  const translators = [
+    { fn: translateLingva, name: 'Lingva' },
+    { fn: translateLibre, name: 'Libre' },
+    { fn: translateMyMemory, name: 'MyMemory' },
+    { fn: translateTranslateCom, name: 'TranslateCom' }
   ]
 
-  for (const { name, fn } of providers) {
-    try {
-      const result = await fn(text, sourceLang, targetLang)
+  const promises = translators.map(({ fn, name }) =>
+    fn(text, sourceLang, targetLang).then(result => {
       if (result.success && result.text && isValidTranslation(result.text, targetLang)) {
-        console.log(`使用${name}翻译成功`)
-        return { success: true, text: result.text }
+        return { success: true, text: result.text, source: name }
       }
-      console.log(`${name}翻译结果无效`)
-    } catch (error) {
-      console.log(`${name}翻译失败:`, error)
-    }
-  }
+      throw new Error(`${name} failed`)
+    }).catch(() => {
+      throw new Error(`${name} failed`)
+    })
+  )
 
-  console.log('所有免费翻译服务均不可用')
-  return { success: false, error: '所有免费翻译服务均不可用' }
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('All translators timed out')), 8000)
+  )
+
+  try {
+    const result = await Promise.race([Promise.any(promises), timeoutPromise])
+    return { success: true, text: result.text }
+  } catch (errors) {
+    console.log('所有免费翻译服务均不可用或超时:', errors)
+    return { success: false, error: '所有免费翻译服务均不可用' }
+  }
 }
 
 export const supportedLanguages = [
