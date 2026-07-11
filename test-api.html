@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>翻译API测试</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+    .test { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 8px; }
+    .success { background-color: #e8f5e9; border-color: #81c784; }
+    .error { background-color: #ffebee; border-color: #ef5350; }
+    .loading { background-color: #e3f2fd; border-color: #64b5f6; }
+    button { padding: 10px 20px; background: #2196f3; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    button:hover { background: #1976d2; }
+    pre { background: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>翻译API测试</h1>
+  <p>点击按钮测试各个翻译API是否能在浏览器中正常工作</p>
+
+  <div class="test">
+    <h3>1. Google Translate (带CORS代理)</h3>
+    <button onclick="testGoogle()">测试 Google</button>
+    <div id="google-result"></div>
+  </div>
+
+  <div class="test">
+    <h3>2. MyMemory</h3>
+    <button onclick="testMyMemory()">测试 MyMemory</button>
+    <div id="mymemory-result"></div>
+  </div>
+
+  <div class="test">
+    <h3>3. LibreTranslate</h3>
+    <button onclick="testLibre()">测试 LibreTranslate</button>
+    <div id="libre-result"></div>
+  </div>
+
+  <div class="test">
+    <h3>4. Lingva (Google代理)</h3>
+    <button onclick="testLingva()">测试 Lingva</button>
+    <div id="lingva-result"></div>
+  </div>
+
+  <script>
+    const testText = "Hello world";
+    const sourceLang = "en";
+    const targetLang = "zh";
+
+    async function testGoogle() {
+      const el = document.getElementById('google-result');
+      el.innerHTML = '<div class="loading">正在测试...</div>';
+      
+      const proxies = ['https://api.allorigins.win/get?url=', 'https://corsproxy.io/?url='];
+      const googleUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&dt=t&sl=${sourceLang}&tl=${targetLang}&q=${encodeURIComponent(testText)}`;
+
+      for (const proxy of proxies) {
+        try {
+          const response = await fetch(proxy + encodeURIComponent(googleUrl), { timeout: 5000 });
+          const data = await response.json();
+          
+          let resultData = data;
+          if (data.contents) {
+            resultData = JSON.parse(data.contents);
+          }
+
+          if (Array.isArray(resultData) && resultData[0] && Array.isArray(resultData[0])) {
+            const translations = resultData[0].map(item => item[0]).filter(t => t);
+            const text = translations.join('');
+            el.innerHTML = `<div class="success">✅ 成功! 结果: ${text}</div><pre>${JSON.stringify(data, null, 2)}</pre>`;
+            return;
+          }
+        } catch (e) {
+          el.innerHTML = `<div class="error">❌ ${proxy} 失败: ${e.message}</div>`;
+        }
+      }
+    }
+
+    async function testMyMemory() {
+      const el = document.getElementById('mymemory-result');
+      el.innerHTML = '<div class="loading">正在测试...</div>';
+      
+      try {
+        const response = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(testText)}&langpair=en|zh-CN`, { timeout: 5000 });
+        const data = await response.json();
+        
+        if (data.responseData && data.responseData.translatedText) {
+          el.innerHTML = `<div class="success">✅ 成功! 结果: ${data.responseData.translatedText}</div><pre>${JSON.stringify(data, null, 2)}</pre>`;
+        } else {
+          el.innerHTML = `<div class="error">❌ 结果为空</div><pre>${JSON.stringify(data, null, 2)}</pre>`;
+        }
+      } catch (e) {
+        el.innerHTML = `<div class="error">❌ 失败: ${e.message}</div>`;
+      }
+    }
+
+    async function testLibre() {
+      const el = document.getElementById('libre-result');
+      el.innerHTML = '<div class="loading">正在测试...</div>';
+      
+      try {
+        const response = await fetch('https://libretranslate.de/translate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ q: testText, source: 'en', target: 'zh', format: 'text' }),
+          timeout: 5000
+        });
+        const data = await response.json();
+        
+        if (data.translatedText) {
+          el.innerHTML = `<div class="success">✅ 成功! 结果: ${data.translatedText}</div><pre>${JSON.stringify(data, null, 2)}</pre>`;
+        } else {
+          el.innerHTML = `<div class="error">❌ 结果为空或错误: ${data.error || '未知错误'}</div><pre>${JSON.stringify(data, null, 2)}</pre>`;
+        }
+      } catch (e) {
+        el.innerHTML = `<div class="error">❌ 失败: ${e.message}</div>`;
+      }
+    }
+
+    async function testLingva() {
+      const el = document.getElementById('lingva-result');
+      el.innerHTML = '<div class="loading">正在测试...</div>';
+      
+      const urls = ['https://lingva.ml/api/v1/', 'https://lingva.moe/api/v1/', 'https://lingva.fly.dev/api/v1/'];
+      
+      for (const baseUrl of urls) {
+        try {
+          const response = await fetch(baseUrl + sourceLang + '/' + targetLang + '/' + encodeURIComponent(testText), { timeout: 5000 });
+          const data = await response.json();
+          
+          if (data.translation) {
+            el.innerHTML = `<div class="success">✅ ${baseUrl} 成功! 结果: ${data.translation}</div><pre>${JSON.stringify(data, null, 2)}</pre>`;
+            return;
+          }
+        } catch (e) {
+          el.innerHTML = `<div class="error">❌ ${baseUrl} 失败: ${e.message}</div>`;
+        }
+      }
+    }
+  </script>
+</body>
+</html>

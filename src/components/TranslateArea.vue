@@ -12,43 +12,14 @@ const sourceLang = ref('en')
 const targetLang = ref('zh')
 const isTranslating = ref(false)
 const errorMessage = ref('')
-const currentMode = ref<'cloud' | 'offline-dict' | 'offline-model' | 'free'>('cloud')
-const modelLoading = ref(false)
-const modelReady = ref(false)
-const modelError = ref('')
+const currentMode = ref<'cloud' | 'offline-model'>('cloud')
 
 const tmStore = useTMStore()
 const corpusStore = useCorpusStore()
 const apiStore = useAPIStore()
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
-let modelModule: any = null
-let statusTimer: ReturnType<typeof setInterval> | null = null
-
-async function loadModelModule() {
-  if (modelModule) return modelModule
-  try {
-    modelModule = await import('@/utils/offlineModelTranslator')
-    return modelModule
-  } catch (err) {
-    console.error('加载离线模型模块失败:', err)
-    modelError.value = '离线模型模块加载失败'
-    return null
-  }
-}
-
-function startStatusPolling() {
-  if (statusTimer) return
-  statusTimer = setInterval(async () => {
-    const mod = await loadModelModule()
-    if (mod) {
-      modelLoading.value = mod.isLoadingModel()
-      modelReady.value = mod.isModelReady()
-      const err = mod.getLoadError()
-      modelError.value = err || ''
-    }
-  }, 500)
-}
+let currentRequestId = 0
 
 const sourceWordCount = computed(() => countWords(sourceText.value))
 const targetWordCount = computed(() => countWords(targetText.value))
@@ -58,32 +29,35 @@ function debounceTranslate() {
   
   if (!sourceText.value.trim()) {
     targetText.value = ''
+    errorMessage.value = ''
     return
   }
   
   const tmMatch = tmStore.getMatch(sourceText.value, sourceLang.value, targetLang.value)
-  if (tmMatch) {
-    if (tmStore.priorityOverride) {
-      targetText.value = tmMatch
-      currentMode.value = 'offline-dict'
-      return
-    }
+  if (tmMatch && tmStore.priorityOverride) {
+    targetText.value = tmMatch
+    return
   }
   
   if (debounceTimer) {
     clearTimeout(debounceTimer)
   }
   
+  const requestId = ++currentRequestId
+  
   debounceTimer = setTimeout(async () => {
     isTranslating.value = true
     const result = await translate(sourceText.value, sourceLang.value, targetLang.value)
     isTranslating.value = false
     
+    if (currentRequestId !== requestId) {
+      return
+    }
+    
     if (result.success) {
       let finalText = result.text || ''
-      if (!result.fromOffline) {
-        finalText = corpusStore.matchText(finalText, sourceLang.value, targetLang.value)
-      }
+      
+      finalText = corpusStore.matchText(finalText, sourceLang.value, targetLang.value)
       
       if (tmMatch && tmStore.priorityOverride) {
         finalText = tmMatch
@@ -91,25 +65,15 @@ function debounceTranslate() {
       
       targetText.value = finalText
       
-      if (!result.fromOffline) {
-        const isCompleteSentence = /[.!?。！？]$/.test(sourceText.value.trim()) || sourceText.value.trim().length > 15
-        if (isCompleteSentence) {
-          tmStore.addItem(sourceText.value, targetText.value, sourceLang.value, targetLang.value)
-        }
+      const isCompleteSentence = /[.!?。！？]$/.test(sourceText.value.trim()) || sourceText.value.trim().length > 15
+      if (isCompleteSentence) {
+        tmStore.addItem(sourceText.value, targetText.value, sourceLang.value, targetLang.value)
       }
       
-      currentMode.value = result.fromOffline 
-        ? (result.fromModel ? 'offline-model' : 'offline-dict') 
-        : (result.fromFree ? 'free' : 'cloud')
-      
+      currentMode.value = result.fromOffline ? 'offline-model' : 'cloud'
       errorMessage.value = ''
     } else {
-      const isOfflineError = (result.error || '').includes('离线') || (result.error || '').includes('网络')
-      if (isOfflineError) {
-        errorMessage.value = ''
-        targetText.value = ''
-        currentMode.value = 'offline-dict'
-      } else {
+      if (!targetText.value) {
         errorMessage.value = result.error || '翻译失败'
       }
     }
@@ -121,23 +85,11 @@ watch(sourceText, () => {
 })
 
 onMounted(() => {
-  startStatusPolling()
-  setTimeout(async () => {
-    const mod = await loadModelModule()
-    if (mod) {
-      mod.initModel().catch((err: any) => {
-        console.warn('离线模型加载失败:', err)
-      })
-    }
-  }, 1500)
 })
 
 onUnmounted(() => {
   if (debounceTimer) {
     clearTimeout(debounceTimer)
-  }
-  if (statusTimer) {
-    clearInterval(statusTimer)
   }
 })
 
@@ -190,43 +142,25 @@ function exportAll() {
 }
 
 function getModeText() {
+  if (currentMode.value === 'offline-model') {
+    return '🤖 离线AI模型'
+  }
+  
   const providerNames: Record<string, string> = {
     'baidu': '百度',
     'volcengine': '火山',
-    'youdao': '有道',
-    'iflytek': '讯飞',
-    'deepl': 'DeepL',
     'doubao': '豆包'
   }
   
-  switch (currentMode.value) {
-    case 'cloud':
-      const providerName = providerNames[apiStore.currentProvider] || '云端'
-      return `🌐 ${providerName}翻译`
-    case 'free':
-      return '🆓 免费翻译'
-    case 'offline-dict':
-      return '📖 离线词典'
-    case 'offline-model':
-      return '🤖 离线模型'
-    default:
-      return '🆓 免费翻译'
-  }
+  const providerName = providerNames[apiStore.currentProvider] || '云端'
+  return `🌐 ${providerName}翻译`
 }
 
 function getModeColor() {
-  switch (currentMode.value) {
-    case 'cloud':
-      return '#409EFF'
-    case 'free':
-      return '#909399'
-    case 'offline-dict':
-      return '#67C23A'
-    case 'offline-model':
-      return '#E6A23C'
-    default:
-      return '#409EFF'
+  if (currentMode.value === 'offline-model') {
+    return '#E6A23C'
   }
+  return '#409EFF'
 }
 </script>
 

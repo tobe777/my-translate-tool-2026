@@ -12,7 +12,7 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['@xenova/transformers']
   },
-  base: '/my-translate-tool-2026/',
+  base: '/omg-translation/',
   build: {
     rollupOptions: {
       output: {

@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { getStorage, setStorage } from '@/utils/storage'
 
-export type ProviderType = 'volcengine' | 'baidu' | 'youdao' | 'iflytek' | 'deepl' | 'doubao'
+export type ProviderType = 'volcengine' | 'baidu' | 'doubao'
 
 export interface APIConfig {
   provider: ProviderType
@@ -14,18 +14,6 @@ export interface APIConfig {
     appId: string
     appKey: string
   }
-  youdao: {
-    appId: string
-    appKey: string
-  }
-  iflytek: {
-    accessKey: string
-    secretKey: string
-  }
-  deepl: {
-    authKey: string
-    isPro: boolean
-  }
   doubao: {
     apiKey: string
   }
@@ -34,7 +22,7 @@ export interface APIConfig {
 const STORAGE_KEY = 'api_config'
 
 const defaultConfig: APIConfig = {
-  provider: 'volcengine',
+  provider: 'baidu',
   volcengine: {
     accessKey: '',
     secretKey: ''
@@ -42,18 +30,6 @@ const defaultConfig: APIConfig = {
   baidu: {
     appId: '',
     appKey: ''
-  },
-  youdao: {
-    appId: '',
-    appKey: ''
-  },
-  iflytek: {
-    accessKey: '',
-    secretKey: ''
-  },
-  deepl: {
-    authKey: '',
-    isPro: false
   },
   doubao: {
     apiKey: ''
@@ -80,21 +56,6 @@ export const useAPIStore = defineStore('api', () => {
     setStorage(STORAGE_KEY, config.value)
   }
 
-  function updateYoudao(appId: string, appKey: string) {
-    config.value.youdao = { appId, appKey }
-    setStorage(STORAGE_KEY, config.value)
-  }
-
-  function updateIflytek(accessKey: string, secretKey: string) {
-    config.value.iflytek = { accessKey, secretKey }
-    setStorage(STORAGE_KEY, config.value)
-  }
-
-  function updateDeepl(authKey: string, isPro: boolean) {
-    config.value.deepl = { authKey, isPro }
-    setStorage(STORAGE_KEY, config.value)
-  }
-
   function updateDoubao(apiKey: string) {
     config.value.doubao = { apiKey }
     setStorage(STORAGE_KEY, config.value)
@@ -111,12 +72,6 @@ export const useAPIStore = defineStore('api', () => {
         return !!(config.value.volcengine.accessKey && config.value.volcengine.secretKey)
       case 'baidu':
         return !!(config.value.baidu.appId && config.value.baidu.appKey)
-      case 'youdao':
-        return !!(config.value.youdao.appId && config.value.youdao.appKey)
-      case 'iflytek':
-        return !!(config.value.iflytek.accessKey && config.value.iflytek.secretKey)
-      case 'deepl':
-        return !!(config.value.deepl.authKey)
       case 'doubao':
         return !!(config.value.doubao.apiKey)
       default:
@@ -130,9 +85,6 @@ export const useAPIStore = defineStore('api', () => {
     saveConfig,
     updateVolcengine,
     updateBaidu,
-    updateYoudao,
-    updateIflytek,
-    updateDeepl,
     updateDoubao,
     setProvider,
     isValid

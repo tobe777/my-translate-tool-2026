@@ -20,18 +20,11 @@ const volcAccessKey = ref(apiStore.config.volcengine.accessKey)
 const volcSecretKey = ref(apiStore.config.volcengine.secretKey)
 const baiduAppId = ref(apiStore.config.baidu.appId)
 const baiduAppKey = ref(apiStore.config.baidu.appKey)
-const youdaoAppId = ref(apiStore.config.youdao.appId)
-const youdaoAppKey = ref(apiStore.config.youdao.appKey)
-const iflytekAccessKey = ref(apiStore.config.iflytek.accessKey)
-const iflytekSecretKey = ref(apiStore.config.iflytek.secretKey)
-const deeplAuthKey = ref(apiStore.config.deepl.authKey)
-const deeplIsPro = ref(apiStore.config.deepl.isPro)
 const doubaoApiKey = ref(apiStore.config.doubao.apiKey)
 
 const isTesting = ref(false)
 const testResult = ref<'success' | 'error' | null>(null)
 const testErrorMessage = ref('')
-const debugInfo = ref('')
 
 watch(provider, (newProvider) => {
   apiStore.setProvider(newProvider)
@@ -75,55 +68,6 @@ function saveConfig() {
       emit('update:visible', false)
       break
     }
-    case 'youdao': {
-      const appId = youdaoAppId.value.trim()
-      const appKey = youdaoAppKey.value.trim()
-      
-      if (!appId) {
-        ElMessage.warning('请输入APP ID')
-        return
-      }
-      if (!appKey) {
-        ElMessage.warning('请输入密钥')
-        return
-      }
-      
-      apiStore.updateYoudao(appId, appKey)
-      ElMessage.success('配置已保存')
-      emit('update:visible', false)
-      break
-    }
-    case 'iflytek': {
-      const ak = iflytekAccessKey.value.trim()
-      const sk = iflytekSecretKey.value.trim()
-      
-      if (!ak) {
-        ElMessage.warning('请输入Access Key')
-        return
-      }
-      if (!sk) {
-        ElMessage.warning('请输入Secret Key')
-        return
-      }
-      
-      apiStore.updateIflytek(ak, sk)
-      ElMessage.success('配置已保存')
-      emit('update:visible', false)
-      break
-    }
-    case 'deepl': {
-      const authKey = deeplAuthKey.value.trim()
-      
-      if (!authKey) {
-        ElMessage.warning('请输入Auth Key')
-        return
-      }
-      
-      apiStore.updateDeepl(authKey, deeplIsPro.value)
-      ElMessage.success('配置已保存')
-      emit('update:visible', false)
-      break
-    }
     case 'doubao': {
       const apiKey = doubaoApiKey.value.trim()
       
@@ -142,7 +86,6 @@ function saveConfig() {
 
 async function testAPI() {
   testErrorMessage.value = ''
-  debugInfo.value = ''
   
   switch (provider.value) {
     case 'volcengine': {
@@ -177,49 +120,6 @@ async function testAPI() {
       apiStore.updateBaidu(appId, appKey)
       break
     }
-    case 'youdao': {
-      const appId = youdaoAppId.value.trim()
-      const appKey = youdaoAppKey.value.trim()
-      
-      if (!appId) {
-        ElMessage.warning('请输入APP ID')
-        return
-      }
-      if (!appKey) {
-        ElMessage.warning('请输入密钥')
-        return
-      }
-      
-      apiStore.updateYoudao(appId, appKey)
-      break
-    }
-    case 'iflytek': {
-      const ak = iflytekAccessKey.value.trim()
-      const sk = iflytekSecretKey.value.trim()
-      
-      if (!ak) {
-        ElMessage.warning('请输入Access Key')
-        return
-      }
-      if (!sk) {
-        ElMessage.warning('请输入Secret Key')
-        return
-      }
-      
-      apiStore.updateIflytek(ak, sk)
-      break
-    }
-    case 'deepl': {
-      const authKey = deeplAuthKey.value.trim()
-      
-      if (!authKey) {
-        ElMessage.warning('请输入Auth Key')
-        return
-      }
-      
-      apiStore.updateDeepl(authKey, deeplIsPro.value)
-      break
-    }
     case 'doubao': {
       const apiKey = doubaoApiKey.value.trim()
       
@@ -243,35 +143,22 @@ async function testAPI() {
     if (result.success) {
       testResult.value = 'success'
       testErrorMessage.value = ''
-      debugInfo.value = ''
       ElMessage.success('API测试成功')
     } else {
       testResult.value = 'error'
       testErrorMessage.value = result.error || 'API测试失败'
-      debugInfo.value = `错误码: ${result.debugInfo?.errorCode || '未知'}`
       ElMessage.error(result.error || 'API测试失败')
     }
   } catch (error: any) {
     isTesting.value = false
     testResult.value = 'error'
     
-    console.error('=== 测试连接异常 ===')
-    console.error('Error:', error)
-    console.error('Error Code:', error.code)
-    console.error('Error Message:', error.message)
-    if (error.response) {
-      console.error('Response Status:', error.response.status)
-      console.error('Response Data:', error.response.data)
-      console.error('Response Headers:', error.response.headers)
-    }
-    console.error('======================')
-    
     if (error.code === 'ERR_NETWORK') {
       testErrorMessage.value = '❌ 网络错误：无法连接到翻译服务，请检查网络连接'
     } else if (error.message?.includes('timeout')) {
       testErrorMessage.value = '❌ 网络超时：连接翻译服务超时，请检查网络或稍后重试'
     } else if (error.message?.includes('CORS')) {
-      testErrorMessage.value = '❌ 跨域错误：代理配置异常，请检查vite.config.ts配置'
+      testErrorMessage.value = '❌ 跨域错误：代理配置异常'
     } else if (error.response?.status === 401) {
       testErrorMessage.value = '❌ 认证失败：密钥不正确，请检查配置'
     } else if (error.response?.status === 403) {
@@ -294,7 +181,6 @@ function handleClose() {
   emit('update:visible', false)
   testResult.value = null
   testErrorMessage.value = ''
-  debugInfo.value = ''
 }
 </script>
 
@@ -322,24 +208,6 @@ function handleClose() {
                 @click="provider = 'baidu'"
               >
                 百度翻译
-              </button>
-              <button
-                :class="['switch-tab', { active: provider === 'youdao' }]"
-                @click="provider = 'youdao'"
-              >
-                有道翻译
-              </button>
-              <button
-                :class="['switch-tab', { active: provider === 'iflytek' }]"
-                @click="provider = 'iflytek'"
-              >
-                讯飞翻译
-              </button>
-              <button
-                :class="['switch-tab', { active: provider === 'deepl' }]"
-                @click="provider = 'deepl'"
-              >
-                DeepL
               </button>
               <button
                 :class="['switch-tab', { active: provider === 'doubao' }]"
@@ -396,76 +264,6 @@ function handleClose() {
             </div>
           </div>
           
-          <div v-else-if="provider === 'youdao'" class="form-section">
-            <div class="form-item">
-              <label>APP ID</label>
-              <input
-                v-model="youdaoAppId"
-                type="text"
-                placeholder="请输入有道翻译APP ID"
-              />
-            </div>
-            <div class="form-item">
-              <label>密钥</label>
-              <input
-                v-model="youdaoAppKey"
-                type="password"
-                placeholder="请输入有道翻译密钥"
-              />
-            </div>
-            <div class="tip">
-              <span>提示：</span>
-              <span>请前往 <a href="https://ai.youdao.com/" target="_blank">有道智云平台</a> 获取密钥</span>
-            </div>
-          </div>
-          
-          <div v-else-if="provider === 'iflytek'" class="form-section">
-            <div class="form-item">
-              <label>Access Key</label>
-              <input
-                v-model="iflytekAccessKey"
-                type="text"
-                placeholder="请输入科大讯飞Access Key"
-              />
-            </div>
-            <div class="form-item">
-              <label>Secret Key</label>
-              <input
-                v-model="iflytekSecretKey"
-                type="password"
-                placeholder="请输入科大讯飞Secret Key"
-              />
-            </div>
-            <div class="tip">
-              <span>提示：</span>
-              <span>请前往 <a href="https://console.xfyun.cn/" target="_blank">科大讯飞开放平台</a> 获取密钥</span>
-            </div>
-          </div>
-          
-          <div v-else-if="provider === 'deepl'" class="form-section">
-            <div class="form-item">
-              <label>Auth Key</label>
-              <input
-                v-model="deeplAuthKey"
-                type="password"
-                placeholder="请输入DeepL Auth Key"
-              />
-            </div>
-            <div class="form-item">
-              <label style="display: flex; align-items: center; gap: 8px;">
-                <input
-                  v-model="deeplIsPro"
-                  type="checkbox"
-                />
-                专业版 (Pro)
-              </label>
-            </div>
-            <div class="tip">
-              <span>提示：</span>
-              <span>请前往 <a href="https://www.deepl.com/pro-api" target="_blank">DeepL API官网</a> 获取Auth Key，免费版无需勾选专业版</span>
-            </div>
-          </div>
-          
           <div v-else-if="provider === 'doubao'" class="form-section">
             <div class="form-item">
               <label>API Key</label>
@@ -495,11 +293,6 @@ function handleClose() {
           <div v-if="testErrorMessage" class="error-detail">
             <div class="error-title">错误详情</div>
             <div class="error-content">{{ testErrorMessage }}</div>
-          </div>
-          
-          <div v-if="debugInfo" class="debug-detail">
-            <div class="debug-title">调试信息</div>
-            <div class="debug-content">{{ debugInfo }}</div>
           </div>
         </div>
         
@@ -624,10 +417,6 @@ function handleClose() {
       font-size: 14px;
       color: #606266;
       margin-bottom: 6px;
-      
-      input[type="checkbox"] {
-        margin-right: 8px;
-      }
     }
     
     input {
@@ -737,28 +526,6 @@ function handleClose() {
     font-size: 12px;
     color: #F56C6C;
     line-height: 1.5;
-    word-break: break-all;
-  }
-}
-
-.debug-detail {
-  margin-top: 8px;
-  padding: 12px;
-  background: #F5F7FA;
-  border-radius: 6px;
-  border: 1px solid #E4E7ED;
-  
-  .debug-title {
-    font-size: 12px;
-    color: #909399;
-    font-weight: 600;
-    margin-bottom: 4px;
-  }
-  
-  .debug-content {
-    font-size: 12px;
-    color: #606266;
-    font-family: monospace;
     word-break: break-all;
   }
 }

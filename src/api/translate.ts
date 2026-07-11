@@ -1,30 +1,53 @@
 import axios from 'axios'
 import { useAPIStore } from '@/stores/apiStore'
-import { translateFromDict } from '@/utils/offlineTranslator'
 
 export interface TranslateResult {
   success: boolean
   text?: string
   error?: string
-  debugInfo?: any
   fromOffline?: boolean
-  fromModel?: boolean
-  fromFree?: boolean
 }
 
-async function sha256Hex(data: string): Promise<string> {
-  const encoder = new TextEncoder()
-  const buffer = await crypto.subtle.digest('SHA-256', encoder.encode(data))
-  return Array.from(new Uint8Array(buffer)).map(b => b.toString(16).padStart(2, '0')).join('')
+function cleanTranslation(text: string): string {
+  if (!text) return ''
+
+  let cleaned = text
+
+  cleaned = cleaned.replace(/\r\n/g, '\n')
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n')
+  cleaned = cleaned.replace(/\s{2,}/g, ' ')
+  cleaned = cleaned.trim()
+
+  cleaned = cleaned.replace(/翻译：/g, '')
+  cleaned = cleaned.replace(/译文：/g, '')
+  cleaned = cleaned.replace(/原文：/g, '')
+  cleaned = cleaned.replace(/解释：/g, '')
+  cleaned = cleaned.replace(/说明：/g, '')
+  cleaned = cleaned.replace(/备注：/g, '')
+  cleaned = cleaned.replace(/例句：/g, '')
+  cleaned = cleaned.replace(/参考：/g, '')
+  cleaned = cleaned.replace(/Reference:/gi, '')
+  cleaned = cleaned.replace(/Translation:/gi, '')
+  cleaned = cleaned.replace(/Original:/gi, '')
+  cleaned = cleaned.replace(/Explanation:/gi, '')
+  cleaned = cleaned.replace(/Example:/gi, '')
+
+  cleaned = cleaned.replace(/\b(https?:\/\/[^\s]+)\b/g, '')
+  cleaned = cleaned.replace(/\b(www\.[^\s]+)\b/g, '')
+
+  cleaned = cleaned.trim()
+
+  return cleaned
 }
 
-async function hmacSha256(key: Uint8Array, data: string): Promise<Uint8Array> {
-  const cryptoKey = await crypto.subtle.importKey('raw', key.buffer as ArrayBuffer, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
-  const buffer = await crypto.subtle.sign('HMAC', cryptoKey, new TextEncoder().encode(data))
-  return new Uint8Array(buffer)
-}
+const TRANSLATION_PROMPT = `你是一个专业的翻译助手，必须严格遵守以下翻译规则：
+1. 完整理解整段文本的语义，按目标语言的母语语序重组通顺完整的句子，禁止逐词碎片式翻译；
+2. 全文所有词汇必须完整翻译，不存在"不会就保留原词"的情况，生僻词根据语境意译；
+3. 仅输出纯目标语言译文，禁止任何原文词汇、双语对照、注释、解释、额外符号，所有多余内容全部剔除；
+4. 严格区分中译英/英译中，全程单一语种输出，不允许两种文字共存；
+5. 保持句子的完整性和语法正确性，不要拆分句子，不要破坏语法结构。`
 
-function md5Hex(data: string): Promise<string> {
+async function md5Hex(data: string): Promise<string> {
   return new Promise(resolve => {
     const md5 = (str: string): string => {
       const rotateLeft = (lValue: number, iShiftBits: number): number => {
@@ -186,6 +209,12 @@ function md5Hex(data: string): Promise<string> {
   })
 }
 
+async function hmacSha256(key: Uint8Array, data: string): Promise<Uint8Array> {
+  const cryptoKey = await crypto.subtle.importKey('raw', key.buffer as ArrayBuffer, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+  const buffer = await crypto.subtle.sign('HMAC', cryptoKey, new TextEncoder().encode(data))
+  return new Uint8Array(buffer)
+}
+
 async function translateBaidu(text: string, sourceLang: string, targetLang: string): Promise<TranslateResult> {
   const store = useAPIStore()
   const { appId, appKey } = store.config.baidu
@@ -216,7 +245,8 @@ async function translateBaidu(text: string, sourceLang: string, targetLang: stri
 
     if (response.data && response.data.trans_result && response.data.trans_result.length > 0) {
       const result = response.data.trans_result[0]
-      return { success: true, text: result.dst }
+      const cleanedText = cleanTranslation(result.dst)
+      return { success: true, text: cleanedText }
     }
     return { success: false, error: '翻译结果为空' }
   } catch (error: any) {
@@ -273,7 +303,8 @@ async function translateVolcengine(text: string, sourceLang: string, targetLang:
     })
 
     if (response.data && response.data.Result && response.data.Result.Translation) {
-      return { success: true, text: response.data.Result.Translation }
+      const cleanedText = cleanTranslation(response.data.Result.Translation)
+      return { success: true, text: cleanedText }
     }
     return { success: false, error: '翻译结果为空' }
   } catch (error: any) {
@@ -281,117 +312,7 @@ async function translateVolcengine(text: string, sourceLang: string, targetLang:
   }
 }
 
-async function translateYoudao(text: string, sourceLang: string, targetLang: string): Promise<TranslateResult> {
-  const store = useAPIStore()
-  const { appId, appKey } = store.config.youdao
-  if (!appId || !appKey) {
-    return { success: false, error: '有道翻译API未配置' }
-  }
-
-  const salt = Date.now().toString()
-  const curtime = Math.floor(Date.now() / 1000).toString()
-  const signStr = `${appId}${text}${salt}${curtime}${appKey}`
-  const sign = await sha256Hex(signStr)
-
-  try {
-    const response = await axios.post(
-      'https://openapi.youdao.com/api',
-      null,
-      {
-        params: {
-          q: text,
-          from: sourceLang,
-          to: targetLang,
-          appKey: appId,
-          salt,
-          sign,
-          signType: 'v3',
-          curtime
-        },
-        timeout: 10000
-      }
-    )
-
-    if (response.data && response.data.translation && response.data.translation.length > 0) {
-      return { success: true, text: response.data.translation[0] }
-    }
-    return { success: false, error: '翻译结果为空' }
-  } catch (error: any) {
-    return { success: false, error: error.message || '翻译失败' }
-  }
-}
-
-async function translateIflytek(text: string, sourceLang: string, targetLang: string): Promise<TranslateResult> {
-  const store = useAPIStore()
-  const { accessKey, secretKey } = store.config.iflytek
-  if (!accessKey || !secretKey) {
-    return { success: false, error: '讯飞翻译API未配置' }
-  }
-
-  const curTime = Date.now().toString()
-  const signStr = `${accessKey}${curTime}${secretKey}`
-  const sign = await md5Hex(signStr)
-
-  try {
-    const response = await axios.post(
-      'http://api.fanyi.baidu.com/api/trans/vip/translate',
-      null,
-      {
-        params: {
-          q: text,
-          from: sourceLang,
-          to: targetLang,
-          appid: accessKey,
-          salt: Date.now().toString(),
-          sign
-        },
-        timeout: 10000
-      }
-    )
-
-    if (response.data && response.data.trans_result && response.data.trans_result.length > 0) {
-      return { success: true, text: response.data.trans_result[0].dst }
-    }
-    return { success: false, error: '翻译结果为空' }
-  } catch (error: any) {
-    return { success: false, error: error.message || '翻译失败' }
-  }
-}
-
-async function translateDeepl(text: string, sourceLang: string, targetLang: string): Promise<TranslateResult> {
-  const store = useAPIStore()
-  const { authKey } = store.config.deepl
-  if (!authKey) {
-    return { success: false, error: 'DeepL翻译API未配置' }
-  }
-
-  try {
-    const response = await axios.post(
-      'https://api-free.deepl.com/v2/translate',
-      {
-        text: [text],
-        source_lang: sourceLang.toUpperCase(),
-        target_lang: targetLang.toUpperCase()
-      },
-      {
-        headers: {
-          'Authorization': `DeepL-Auth-Key ${authKey}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 10000
-      }
-    )
-
-    if (response.data && response.data.translations && response.data.translations.length > 0) {
-      return { success: true, text: response.data.translations[0].text }
-    }
-    return { success: false, error: '翻译结果为空' }
-  } catch (error: any) {
-    return { success: false, error: error.message || '翻译失败' }
-  }
-}
-
-async function translateDoubao(text: string, sourceLang: string, targetLang: string): Promise<TranslateResult> {
+async function translateDoubao(text: string, _sourceLang: string, targetLang: string): Promise<TranslateResult> {
   const store = useAPIStore()
   const { apiKey } = store.config.doubao
   if (!apiKey) {
@@ -406,14 +327,14 @@ async function translateDoubao(text: string, sourceLang: string, targetLang: str
         messages: [
           {
             role: 'system',
-            content: `你是一个翻译助手，请将以下${sourceLang === 'zh' ? '中文' : '英文'}翻译成${targetLang === 'zh' ? '中文' : '英文'}，只输出翻译结果，不要包含任何解释或其他内容。`
+            content: `${TRANSLATION_PROMPT}\n目标语言：${targetLang === 'zh' || targetLang === 'zh-CN' || targetLang === 'zh-TW' ? '中文' : targetLang === 'en' ? 'English' : targetLang}`
           },
           {
             role: 'user',
             content: text
           }
         ],
-        max_tokens: 500
+        max_tokens: 2000
       },
       {
         headers: {
@@ -425,7 +346,9 @@ async function translateDoubao(text: string, sourceLang: string, targetLang: str
     )
 
     if (response.data && response.data.choices && response.data.choices.length > 0) {
-      return { success: true, text: response.data.choices[0].message.content.trim() }
+      const translatedText = response.data.choices[0].message.content.trim()
+      const cleanedText = cleanTranslation(translatedText)
+      return { success: true, text: cleanedText }
     }
     return { success: false, error: '翻译结果为空' }
   } catch (error: any) {
@@ -433,155 +356,204 @@ async function translateDoubao(text: string, sourceLang: string, targetLang: str
   }
 }
 
-function isValidTranslation(text: string, targetLang: string): boolean {
-  if (!text || !text.trim()) return false
+async function translateLibre(text: string, sourceLang: string, targetLang: string): Promise<TranslateResult> {
+  const servers = [
+    'https://libretranslate.de',
+    'https://translate.argosopentech.com',
+    'https://translate.fortytwo-it.com'
+  ]
   
-  if (targetLang === 'zh' || targetLang === 'zh-CN' || targetLang === 'zh-TW') {
-    return /[\u4e00-\u9fa5]/.test(text)
+  for (const server of servers) {
+    try {
+      const response = await axios.post(
+        `${server}/translate`,
+        {
+          q: text,
+          source: sourceLang,
+          target: targetLang
+        },
+        {
+          timeout: 5000,
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          }
+        }
+      )
+
+      if (response.data && response.data.translatedText) {
+        const cleanedText = cleanTranslation(response.data.translatedText)
+        return { success: true, text: cleanedText }
+      }
+    } catch (e) {
+      console.warn(`LibreTranslate server ${server} failed:`, e)
+      continue
+    }
   }
   
-  if (targetLang === 'ja') {
-    return /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]/.test(text) || /[a-zA-Z]/.test(text)
+  return { success: false, error: 'LibreTranslate不可用' }
+}
+
+async function translateLingva(text: string, sourceLang: string, targetLang: string): Promise<TranslateResult> {
+  const servers = [
+    'https://lingva.ml/api/v1',
+    'https://lingva.lunar.icu/api/v1',
+    'https://lingva.pussthecat.org/api/v1'
+  ]
+  
+  for (const server of servers) {
+    try {
+      const response = await axios.get(
+        `${server}/${sourceLang}/${targetLang}/${encodeURIComponent(text)}`,
+        {
+          timeout: 5000,
+          headers: {
+            'Accept': 'application/json'
+          }
+        }
+      )
+
+      if (response.data && response.data.translation) {
+        const cleanedText = cleanTranslation(response.data.translation)
+        return { success: true, text: cleanedText }
+      }
+    } catch (e) {
+      console.warn(`Lingva server ${server} failed:`, e)
+      continue
+    }
   }
   
-  if (targetLang === 'ko') {
-    return /[\uac00-\ud7af]/.test(text) || /[a-zA-Z]/.test(text)
-  }
-  
-  if (targetLang === 'ar') {
-    return /[\u0600-\u06ff]/.test(text)
-  }
-  
-  if (targetLang === 'th') {
-    return /[\u0e00-\u0e7f]/.test(text)
-  }
-  
-  return true
+  return { success: false, error: 'Lingva翻译不可用' }
 }
 
 async function translateMyMemory(text: string, sourceLang: string, targetLang: string): Promise<TranslateResult> {
   try {
-    const srcLang = sourceLang === 'auto' ? 'en' : sourceLang
-    const tgtLang = targetLang === 'zh' ? 'zh-CN' : targetLang
-    const langpair = `${srcLang}|${tgtLang}`
-    const response = await axios.get('https://api.mymemory.translated.net/get', {
-      params: {
-        q: text,
-        langpair: langpair
-      },
-      timeout: 5000
-    })
+    const response = await axios.get(
+      'https://api.mymemory.translated.net/get',
+      {
+        params: {
+          q: text,
+          langpair: `${sourceLang}|${targetLang}`
+        },
+        timeout: 5000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+      }
+    )
 
     if (response.data && response.data.responseData && response.data.responseData.translatedText) {
-      const translatedText = response.data.responseData.translatedText
-      if (isValidTranslation(translatedText, targetLang)) {
-        return { success: true, text: translatedText }
-      }
-      return { success: false, error: 'MyMemory翻译结果无效' }
+      const cleanedText = cleanTranslation(response.data.responseData.translatedText)
+      return { success: true, text: cleanedText }
     }
-    return { success: false, error: 'MyMemory翻译结果为空' }
+    return { success: false, error: 'MyMemory翻译失败' }
   } catch (error: any) {
-    return { success: false, error: error.message || 'MyMemory翻译服务不可用' }
+    return { success: false, error: error.message || 'MyMemory翻译失败' }
   }
 }
 
-async function translateLibre(text: string, sourceLang: string, targetLang: string): Promise<TranslateResult> {
+async function translateGoogle(text: string, sourceLang: string, targetLang: string): Promise<TranslateResult> {
   try {
-    const response = await axios.post('https://libretranslate.de/translate', {
-      q: text,
-      source: sourceLang === 'auto' ? 'en' : sourceLang,
-      target: targetLang,
-      format: 'text'
-    }, {
-      timeout: 5000
-    })
+    const proxies = [
+      'https://api.allorigins.win/get?url=',
+      'https://corsproxy.io/?url='
+    ]
+    
+    for (const proxy of proxies) {
+      try {
+        const encodedUrl = encodeURIComponent(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`)
+        const response = await axios.get(proxy + encodedUrl, {
+          timeout: 5000,
+          headers: {
+            'Accept': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          }
+        })
 
-    if (response.data && response.data.translatedText) {
-      const translatedText = response.data.translatedText
-      if (isValidTranslation(translatedText, targetLang)) {
-        return { success: true, text: translatedText }
+        let data = response.data
+        if (typeof data === 'string') {
+          data = JSON.parse(data)
+        }
+        
+        let content = data.contents || data
+        if (typeof content === 'string') {
+          content = JSON.parse(content)
+        }
+        
+        if (Array.isArray(content) && content.length > 0) {
+          const resultArray = content[0]
+          if (Array.isArray(resultArray)) {
+            let translatedText = ''
+            for (const item of resultArray) {
+              if (Array.isArray(item) && item[0]) {
+                translatedText += item[0]
+              }
+            }
+            if (translatedText) {
+              const cleanedText = cleanTranslation(translatedText)
+              return { success: true, text: cleanedText }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Google proxy failed:', e)
+        continue
       }
-      return { success: false, error: 'Libre翻译结果无效' }
     }
-    return { success: false, error: 'Libre翻译结果为空' }
+    
+    return { success: false, error: 'Google翻译不可用' }
   } catch (error: any) {
-    return { success: false, error: error.message || 'Libre翻译服务不可用' }
+    return { success: false, error: error.message || 'Google翻译失败' }
   }
 }
 
-async function translateLingva(text: string, sourceLang: string, targetLang: string): Promise<TranslateResult> {
-  try {
-    const response = await axios.get('https://lingva.ml/api/v1/' + sourceLang + '/' + targetLang + '/' + encodeURIComponent(text), {
-      timeout: 5000
-    })
-
-    if (response.data && response.data.translation) {
-      const translatedText = response.data.translation
-      if (isValidTranslation(translatedText, targetLang)) {
-        return { success: true, text: translatedText }
-      }
-      return { success: false, error: 'Lingva翻译结果无效' }
-    }
-    return { success: false, error: 'Lingva翻译结果为空' }
-  } catch (error: any) {
-    return { success: false, error: error.message || 'Lingva翻译服务不可用' }
-  }
-}
-
-async function translateTranslateCom(text: string, sourceLang: string, targetLang: string): Promise<TranslateResult> {
-  try {
-    const response = await axios.get('https://api.translate.com/translate', {
-      params: {
-        from: sourceLang === 'auto' ? 'en' : sourceLang,
-        to: targetLang,
-        text: text
+function timeoutPromise<T>(ms: number, promise: Promise<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error('Timeout'))
+    }, ms)
+    promise.then(
+      (res) => {
+        clearTimeout(timer)
+        resolve(res)
       },
-      timeout: 5000
-    })
-
-    if (response.data && response.data.translatedText) {
-      const translatedText = response.data.translatedText
-      if (isValidTranslation(translatedText, targetLang)) {
-        return { success: true, text: translatedText }
+      (err) => {
+        clearTimeout(timer)
+        reject(err)
       }
-      return { success: false, error: 'Translate.com翻译结果无效' }
-    }
-    return { success: false, error: 'Translate.com翻译结果为空' }
-  } catch (error: any) {
-    return { success: false, error: error.message || 'Translate.com翻译服务不可用' }
-  }
+    )
+  })
 }
 
 async function translateFree(text: string, sourceLang: string, targetLang: string): Promise<TranslateResult> {
-  const translators = [
-    { fn: translateLingva, name: 'Lingva' },
-    { fn: translateLibre, name: 'Libre' },
-    { fn: translateMyMemory, name: 'MyMemory' },
-    { fn: translateTranslateCom, name: 'TranslateCom' }
+  const services = [
+    { name: 'LibreTranslate', fn: translateLibre },
+    { name: 'Lingva', fn: translateLingva },
+    { name: 'MyMemory', fn: translateMyMemory },
+    { name: 'Google', fn: translateGoogle }
   ]
 
-  const promises = translators.map(({ fn, name }) =>
-    fn(text, sourceLang, targetLang).then(result => {
-      if (result.success && result.text && isValidTranslation(result.text, targetLang)) {
-        return { success: true, text: result.text, source: name }
+  const promises = services.map(async (service) => {
+    try {
+      const result = await timeoutPromise(5000, service.fn(text, sourceLang, targetLang))
+      if (result.success && result.text && result.text.trim()) {
+        return { success: true, text: result.text, fromOffline: true }
       }
-      throw new Error(`${name} failed`)
-    }).catch(() => {
-      throw new Error(`${name} failed`)
-    })
-  )
+    } catch (error) {
+      console.warn(`${service.name}翻译失败:`, error)
+    }
+    return null
+  })
 
-  const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error('All translators timed out')), 8000)
-  )
-
-  try {
-    const result = await Promise.race([Promise.any(promises), timeoutPromise])
-    return { success: true, text: result.text }
-  } catch (errors) {
-    console.log('所有免费翻译服务均不可用或超时:', errors)
-    return { success: false, error: '所有免费翻译服务均不可用' }
+  const results = await Promise.allSettled(promises)
+  
+  for (const result of results) {
+    if (result.status === 'fulfilled' && result.value) {
+      return result.value
+    }
   }
+
+  return { success: false, error: '所有免费翻译服务均不可用，请配置云端API密钥' }
 }
 
 export const supportedLanguages = [
@@ -621,15 +593,6 @@ export async function translate(text: string, sourceLang: string, targetLang: st
         case 'baidu':
           result = await translateBaidu(text, sourceLang, targetLang)
           break
-        case 'youdao':
-          result = await translateYoudao(text, sourceLang, targetLang)
-          break
-        case 'iflytek':
-          result = await translateIflytek(text, sourceLang, targetLang)
-          break
-        case 'deepl':
-          result = await translateDeepl(text, sourceLang, targetLang)
-          break
         case 'doubao':
           result = await translateDoubao(text, sourceLang, targetLang)
           break
@@ -638,59 +601,30 @@ export async function translate(text: string, sourceLang: string, targetLang: st
       }
 
       if (result.success) {
-        return { success: true, text: result.text, fromOffline: false, fromModel: false }
+        return { success: true, text: result.text }
       }
 
-      console.log('云端翻译失败，尝试免费翻译服务')
+      console.log('云端翻译失败，自动切换免费翻译服务')
       const freeResult = await translateFree(text, sourceLang, targetLang)
       if (freeResult.success) {
-        return { success: true, text: freeResult.text, fromOffline: false, fromModel: false, fromFree: true }
+        return { success: true, text: freeResult.text, fromOffline: true }
       }
 
       return result
     } catch (error: any) {
-      console.error('翻译异常:', error)
-      
-      console.log('网络异常，尝试免费翻译服务')
+      console.log('云端翻译异常，自动切换免费翻译服务:', error.message)
       const freeResult = await translateFree(text, sourceLang, targetLang)
       if (freeResult.success) {
-        return { success: true, text: freeResult.text, fromOffline: false, fromModel: false, fromFree: true }
+        return { success: true, text: freeResult.text, fromOffline: true }
       }
-
-      if (error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK') {
-        const dictResult = translateFromDict(text, sourceLang, targetLang)
-        if (dictResult.success && dictResult.text) {
-          return { success: true, text: dictResult.text, fromOffline: true, fromModel: false }
-        }
-        return { success: false, text: '', error: '⚠️ 网络连接失败，离线词典已启用' }
-      }
-
-      return { success: false, text: '', error: error.message || '翻译失败' }
+      return { success: false, text: '', error: error.message || '翻译失败，请检查网络或API密钥配置' }
     }
   }
 
-  try {
-    console.log('未配置API密钥，使用免费翻译服务')
-    const freeResult = await translateFree(text, sourceLang, targetLang)
-    if (freeResult.success) {
-      return { success: true, text: freeResult.text, fromOffline: false, fromModel: false, fromFree: true }
-    }
-
-    console.log('免费翻译服务失败，尝试离线词典')
-    const dictResult = translateFromDict(text, sourceLang, targetLang)
-    if (dictResult.success && dictResult.text) {
-      return { success: true, text: dictResult.text, fromOffline: true, fromModel: false }
-    }
-
-    return { success: false, text: '', error: '⚠️ 翻译服务不可用，请检查网络连接或配置API密钥' }
-  } catch (error: any) {
-    console.error('翻译异常:', error)
-    
-    const dictResult = translateFromDict(text, sourceLang, targetLang)
-    if (dictResult.success && dictResult.text) {
-      return { success: true, text: dictResult.text, fromOffline: true, fromModel: false }
-    }
-
-    return { success: false, text: '', error: '⚠️ 网络异常，请检查网络连接' }
+  console.log('未配置API密钥，使用免费翻译服务')
+  const freeResult = await translateFree(text, sourceLang, targetLang)
+  if (freeResult.success) {
+    return { success: true, text: freeResult.text, fromOffline: true }
   }
+  return { success: false, text: '', error: freeResult.error || '所有翻译服务均不可用，请检查网络连接' }
 }
