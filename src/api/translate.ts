@@ -528,35 +528,13 @@ async function translateLingva(text: string, sourceLang: string, targetLang: str
   }
 }
 
-async function translateTranslateCom(text: string, sourceLang: string, targetLang: string): Promise<TranslateResult> {
-  try {
-    const response = await axios.get('https://api.translate.com/translate', {
-      params: {
-        from: sourceLang === 'auto' ? 'en' : sourceLang,
-        to: targetLang,
-        text: text
-      },
-      timeout: 5000
-    })
 
-    if (response.data && response.data.translatedText) {
-      const translatedText = response.data.translatedText
-      if (isValidTranslation(translatedText, targetLang)) {
-        return { success: true, text: translatedText }
-      }
-      return { success: false, error: 'Translate.com翻译结果无效' }
-    }
-    return { success: false, error: 'Translate.com翻译结果为空' }
-  } catch (error: any) {
-    return { success: false, error: error.message || 'Translate.com翻译服务不可用' }
-  }
-}
 async function translateFree(text: string, sourceLang: string, targetLang: string): Promise<TranslateResult> {
   const translators = [
-    { fn: translateMyMemory, name: 'MyMemory' },
+    { fn: translateGoogleDirect, name: 'GoogleDirect' },
     { fn: translateLingva, name: 'Lingva' },
     { fn: translateLibre, name: 'Libre' },
-    { fn: translateTranslateCom, name: 'TranslateCom' }
+    { fn: translateMyMemory, name: 'MyMemory' }
   ]
 
   const promises = translators.map(({ fn, name }) => 
@@ -571,7 +549,7 @@ async function translateFree(text: string, sourceLang: string, targetLang: strin
   )
 
   const timeoutPromise = new Promise<never>((_, reject) => 
-    setTimeout(() => reject(new Error('All translators timed out')), 8000)
+    setTimeout(() => reject(new Error('All translators timed out')), 10000)
   )
 
   try {
@@ -581,6 +559,56 @@ async function translateFree(text: string, sourceLang: string, targetLang: strin
     console.log('所有免费翻译服务均不可用或超时:', errors)
     return { success: false, error: '所有免费翻译服务均不可用' }
   }
+}
+
+async function translateGoogleDirect(text: string, sourceLang: string, targetLang: string): Promise<TranslateResult> {
+  const corsProxies = [
+    'https://api.allorigins.win/get?url=',
+    'https://corsproxy.io/?url='
+  ]
+  
+  const googleUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&dt=t&sl=${sourceLang === 'auto' ? 'auto' : sourceLang}&tl=${targetLang}&q=${encodeURIComponent(text)}`
+  
+  for (const proxy of corsProxies) {
+    try {
+      const response = await axios.get(proxy + encodeURIComponent(googleUrl), {
+        timeout: 8000,
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+      })
+
+      let data = response.data
+      if (typeof response.data === 'string') {
+        try {
+          data = JSON.parse(response.data)
+        } catch {
+          continue
+        }
+      }
+      
+      if (data.contents) {
+        try {
+          data = JSON.parse(data.contents)
+        } catch {
+          continue
+        }
+      }
+
+      if (data && Array.isArray(data) && data[0] && Array.isArray(data[0])) {
+        const translations = data[0].map((item: any[]) => item[0]).filter((t: any) => t)
+        const result = translations.join('')
+        if (isValidTranslation(result, targetLang)) {
+          return { success: true, text: result }
+        }
+      }
+    } catch {
+      continue
+    }
+  }
+
+  return { success: false, error: 'Google翻译不可用' }
 }
 
 export const supportedLanguages = [
