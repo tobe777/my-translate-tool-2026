@@ -528,60 +528,124 @@ async function translateLingva(text: string, sourceLang: string, targetLang: str
   }
 }
 
-async function translateTranslateCom(text: string, sourceLang: string, targetLang: string): Promise<TranslateResult> {
+
+
+async function translateFree(text: string, sourceLang: string, targetLang: string): Promise<TranslateResult> {
+  const providers = [
+    { name: 'Google', fn: translateGoogle },
+    { name: 'Lingva', fn: translateLingva },
+    { name: 'LingvaAlt', fn: translateLingvaAlternative },
+    { name: 'Libre', fn: translateLibre },
+    { name: 'LibreAlt', fn: translateLibreAlternative },
+    { name: 'MyMemory', fn: translateMyMemory }
+  ]
+
+  for (const { name, fn } of providers) {
+    try {
+      const result = await fn(text, sourceLang, targetLang)
+      if (result.success && result.text && isValidTranslation(result.text, targetLang)) {
+        console.log(`使用${name}翻译成功`)
+        return { success: true, text: result.text }
+      }
+      console.log(`${name}翻译结果无效`)
+    } catch (error) {
+      console.log(`${name}翻译失败:`, error)
+    }
+  }
+
+  console.log('所有免费翻译服务均不可用')
+  return { success: false, error: '所有免费翻译服务均不可用' }
+}
+
+async function translateGoogle(text: string, sourceLang: string, targetLang: string): Promise<TranslateResult> {
   try {
-    const response = await axios.get('https://api.translate.com/translate', {
+    const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    const baseURL = isDev ? '/api/google' : 'https://translate.googleapis.com'
+    
+    const response = await axios.get(`${baseURL}/translate_a/single`, {
       params: {
-        from: sourceLang === 'auto' ? 'en' : sourceLang,
-        to: targetLang,
-        text: text
+        client: 'gtx',
+        sl: sourceLang === 'auto' ? 'auto' : sourceLang,
+        tl: targetLang,
+        dt: 't',
+        q: text
       },
-      timeout: 5000
+      timeout: 8000
     })
 
-    if (response.data && response.data.translatedText) {
-      const translatedText = response.data.translatedText
-      if (isValidTranslation(translatedText, targetLang)) {
-        return { success: true, text: translatedText }
+    if (response.data && Array.isArray(response.data) && response.data[0] && Array.isArray(response.data[0])) {
+      const translations = response.data[0].map((item: any[]) => item[0]).filter((t: any) => t)
+      const result = translations.join('')
+      if (isValidTranslation(result, targetLang)) {
+        return { success: true, text: result }
       }
-      return { success: false, error: 'Translate.com翻译结果无效' }
+      return { success: false, error: 'Google翻译结果无效' }
     }
-    return { success: false, error: 'Translate.com翻译结果为空' }
+    return { success: false, error: 'Google翻译结果为空' }
   } catch (error: any) {
-    return { success: false, error: error.message || 'Translate.com翻译服务不可用' }
+    return { success: false, error: error.message || 'Google翻译服务不可用' }
   }
 }
 
-async function translateFree(text: string, sourceLang: string, targetLang: string): Promise<TranslateResult> {
-  const translators = [
-    { fn: translateLingva, name: 'Lingva' },
-    { fn: translateLibre, name: 'Libre' },
-    { fn: translateMyMemory, name: 'MyMemory' },
-    { fn: translateTranslateCom, name: 'TranslateCom' }
+async function translateLingvaAlternative(text: string, sourceLang: string, targetLang: string): Promise<TranslateResult> {
+  const instances = [
+    'https://lingva.moe/api/v1',
+    'https://lingva.fly.dev/api/v1'
   ]
 
-  const promises = translators.map(({ fn, name }) => 
-    fn(text, sourceLang, targetLang).then(result => {
-      if (result.success && result.text && isValidTranslation(result.text, targetLang)) {
-        return { success: true, text: result.text, source: name }
+  for (const baseURL of instances) {
+    try {
+      const response = await axios.get(`${baseURL}/${sourceLang}/${targetLang}/${encodeURIComponent(text)}`, {
+        timeout: 8000
+      })
+
+      if (response.data && response.data.translation) {
+        const translatedText = response.data.translation
+        if (isValidTranslation(translatedText, targetLang)) {
+          return { success: true, text: translatedText }
+        }
       }
-      throw new Error(`${name} failed`)
-    }).catch(() => {
-      throw new Error(`${name} failed`)
-    })
-  )
-
-  const timeoutPromise = new Promise<never>((_, reject) => 
-    setTimeout(() => reject(new Error('All translators timed out')), 8000)
-  )
-
-  try {
-    const result = await Promise.race([Promise.any(promises), timeoutPromise])
-    return { success: true, text: result.text }
-  } catch (errors) {
-    console.log('所有免费翻译服务均不可用或超时:', errors)
-    return { success: false, error: '所有免费翻译服务均不可用' }
+    } catch {
+      continue
+    }
   }
+
+  return { success: false, error: 'Lingva替代服务不可用' }
+}
+
+async function translateLibreAlternative(text: string, sourceLang: string, targetLang: string): Promise<TranslateResult> {
+  const instances = [
+    'https://translate.argosopentech.com',
+    'https://libretranslate.com'
+  ]
+
+  for (const baseURL of instances) {
+    try {
+      const response = await axios.post(`${baseURL}/translate`, {
+        q: text,
+        source: sourceLang === 'auto' ? 'auto' : sourceLang,
+        target: targetLang,
+        format: 'text'
+      }, {
+        timeout: 8000,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        }
+      })
+
+      if (response.data && response.data.translatedText) {
+        const translatedText = response.data.translatedText
+        if (isValidTranslation(translatedText, targetLang)) {
+          return { success: true, text: translatedText }
+        }
+      }
+    } catch {
+      continue
+    }
+  }
+
+  return { success: false, error: 'Libre替代翻译服务不可用' }
 }
 
 export const supportedLanguages = [
