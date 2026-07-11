@@ -554,9 +554,9 @@ async function translateTranslateCom(text: string, sourceLang: string, targetLan
 
 async function translateFree(text: string, sourceLang: string, targetLang: string): Promise<TranslateResult> {
   const translators = [
-    { fn: translateMyMemory, name: 'MyMemory' },
     { fn: translateLingva, name: 'Lingva' },
     { fn: translateLibre, name: 'Libre' },
+    { fn: translateMyMemory, name: 'MyMemory' },
     { fn: translateTranslateCom, name: 'TranslateCom' }
   ]
 
